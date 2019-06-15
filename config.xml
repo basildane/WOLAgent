@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<agent>
+  <listen>
+    <port>9</port>
+    <address>0.0.0.0</address>
+  </listen>
+  <send>
+    <port>9</port>
+    <address>255.255.255.255</address>
+  </send>
+</agent>

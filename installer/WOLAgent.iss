@@ -9,8 +9,8 @@
 #define MyDescription "Aquila WOL Agent"
 #define MyAppVersion GetFileVersion("C:\Projects\Agent\bin\Release\WOLAgent.exe")
 
-#define signtool "c:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe"
-#define subject "Open Source Developer, Phillip Tull"
+#define sign "c:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe"
+#define subject "Open Source Developer"
 #define time "http://time.certum.pl"
 
 [Setup]
@@ -36,14 +36,17 @@ SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64 ia64
 
 ; declare mysign=$p
-SignTool=mysign {#signtool} sign /a /n $q{#subject}$q /as /fd sha256 /td sha256 /tr {#time} /d $q{#MyAppName}$q $f
+SignTool=mysign sign /a /n $q{#subject}$q /as /fd sha256 /td sha256 /tr {#time} /d $q{#MyAppName}$q $f
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
+Source: "{#rootFolder}\config.xml"; DestDir: "{commonappdata}\Aquila Technology\Agent"
 Source: "{#rootFolder}\bin\Release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion sign; BeforeInstall: BeforeServiceInstall('{#MyAppName}', '{#MyAppExeName}'); AfterInstall: AfterServiceInstall('{#MyAppName}', '{#MyAppExeName}')
+;Source: "{#rootFolder}\bin\Release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion; BeforeInstall: BeforeServiceInstall('{#MyAppName}', '{#MyAppExeName}'); AfterInstall: AfterServiceInstall('{#MyAppName}', '{#MyAppExeName}')
+
 
 [Registry]
 Root: "HKLM"; Subkey: "SYSTEM\CurrentControlSet\Services\{#MyAppName}"; ValueType: string; ValueName: "Description"; ValueData: "Passes WOL packets between networks."; Flags: createvalueifdoesntexist deletevalue
@@ -68,7 +71,7 @@ procedure AfterServiceInstall(SvcName, FileName: String);
 begin
   //If service is not installed, it needs to be installed now
   if not ServiceExists(SvcName) then begin
-    if SimpleCreateService(SvcName, '{#MyDescription}', ExpandConstant('{app}')+'\' + FileName, SERVICE_AUTO_START, 'NT AUTHORITY\NETWORK SERVICE', '', False, True) then begin
+    if SimpleCreateService(SvcName, '{#MyDescription}', ExpandConstant('{app}')+'\' + FileName, SERVICE_AUTO_START, '', '', False, True) then begin
       //Service successfully installed
       SimpleStartService(SvcName, True, True);
     end else begin

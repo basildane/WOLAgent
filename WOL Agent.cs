@@ -2,23 +2,54 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.ServiceProcess;
+using System.Xml;
 
 namespace Agent
 {
-    public partial class Service1 : ServiceBase
+    partial class WOL_Agent : ServiceBase
     {
         private BackgroundWorker backgroundworker;
-        const int wolPort = 9;
+        private int sendPort, listenPort;
+        private string sendAddress, listenAddress;
+        const string app = "WOL_Agent";
 
-        public Service1()
+        public WOL_Agent()
         {
             InitializeComponent();
-            backgroundworker = new BackgroundWorker();
-            backgroundworker.WorkerSupportsCancellation = true;
-            backgroundworker.DoWork += new DoWorkEventHandler(bw_DoWork);
+
+            string filename = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData) +
+                "\\Aquila Technology\\Agent\\config.xml";
+            XmlTextReader reader = new XmlTextReader(filename);
+            reader.WhitespaceHandling = WhitespaceHandling.None;
+            XmlDocument xmlDoc = new XmlDocument();
+            xmlDoc.Load(reader);
+            reader.Close();
+
+            XmlElement agent = xmlDoc["agent"];
+            XmlNode send = agent.SelectSingleNode("send");
+            sendPort = int.Parse(send["port"].InnerText);
+            sendAddress = send["address"].InnerText;
+
+            XmlNode listen = agent.SelectSingleNode("listen");
+            listenPort = int.Parse(listen["port"].InnerText);
+            listenAddress = listen["address"].InnerText;
+
+            using (EventLog eventLog = new EventLog("Application"))
+            {
+                eventLog.Source = app;
+                eventLog.WriteEntry("WOL agent listening on " + listenAddress + ":" + listenPort,
+                    EventLogEntryType.Information, 101);
+            }
+
+            backgroundworker = new BackgroundWorker
+            {
+                WorkerSupportsCancellation = true
+            };
+            backgroundworker.DoWork += new DoWorkEventHandler(DoWork);
         }
 
         protected override void OnStart(string[] args)
@@ -31,33 +62,39 @@ namespace Agent
             backgroundworker.CancelAsync();
         }
 
-        private void bw_DoWork(object sender, DoWorkEventArgs e)
+        private void DoWork(object sender, DoWorkEventArgs e)
         {
             BackgroundWorker worker = sender as BackgroundWorker;
-            UdpClient udpReceiver = new UdpClient(wolPort);
+
             UdpClient udpSender = new UdpClient();
-            IPEndPoint ep = new IPEndPoint(IPAddress.Any, 0);
+
+            IPEndPoint listenEP = new IPEndPoint(IPAddress.Parse(listenAddress), listenPort);
+            UdpClient udpReceiver = new UdpClient(listenEP);
 
             Dictionary<string, DateTime> list = new Dictionary<string, DateTime>();
             DateTime lastTime;
             string mac;
 
-            udpSender.Connect("255.255.255.255", wolPort);
+            udpSender.Connect(sendAddress, sendPort);
             udpSender.EnableBroadcast = true;
 
             while (worker.CancellationPending == false)
             {
                 try
                 {
-                    Byte[] receiveBytes = udpReceiver.Receive(ref ep);
+                    Byte[] receiveBytes = udpReceiver.Receive(ref listenEP);
 
                     // verify that WOL packet
-
-                    System.Diagnostics.Debug.WriteLine("received");
 
                     if (validPacket(receiveBytes))
                     {
                         // we have a valid packet
+                        using (EventLog eventLog = new EventLog("Application"))
+                        {
+                            eventLog.Source = app;
+                            eventLog.WriteEntry("WOL packet received from " + listenEP.Address.ToString(),
+                                EventLogEntryType.Information, 101);
+                        }
 
                         mac = BitConverter.ToString(receiveBytes, 6, 6);
 
@@ -67,14 +104,12 @@ namespace Agent
                             {
                                 list.Remove(mac);
                                 list.Add(key: mac, value: DateTime.UtcNow);
-                                System.Diagnostics.Debug.WriteLine("sent " + mac);
                                 udpSender.Send(receiveBytes, receiveBytes.Length);
                             }
                         }
                         else
                         {
                             list.Add(key: mac, value: DateTime.UtcNow);
-                            System.Diagnostics.Debug.WriteLine("sent " + mac);
                             udpSender.Send(receiveBytes, receiveBytes.Length);
                         }
                     }
@@ -82,13 +117,16 @@ namespace Agent
 
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine(ex.ToString());
+                    using (EventLog eventLog = new EventLog("Application"))
+                    {
+                        eventLog.Source = app;
+                        eventLog.WriteEntry("WOL Agent error: " + ex.ToString(), EventLogEntryType.Error, 201, 1);
+                    }
                 }
             }
 
             e.Cancel = true;
             return;
-        
         }
 
         static bool ByteArrayCompare(byte[] a1, byte[] a2)
@@ -113,5 +151,4 @@ namespace Agent
         }
 
     }
-
 }
